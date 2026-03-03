@@ -182,14 +182,14 @@ def get_run_history(
     Get run history for a customer, optionally scoped to a single agent config.
 
     SEARCH_ACTIVATE_MODIFICATION: Added config_id to scope run history per agent config.
-    When config_id is set, returns only runs for that config (or runs with no config_id
-    for backward compatibility with scheduler/legacy runs).
+    When config_id is set, returns only runs that have that config_id (runs with no
+    config_id are excluded so each config's Run History shows only its own runs).
 
     Args:
         customer_id: The Google Ads customer ID.
         limit: Maximum number of runs to return.
         include_dry_runs: Whether to include dry-run results.
-        config_id: If set, only return runs for this config (or runs with no config_id).
+        config_id: If set, only return runs for this config (run document must have matching config_id).
     Returns:
         List of run documents, newest first.
     Note:
@@ -211,8 +211,7 @@ def get_run_history(
             if not (include_dry_runs or not run_data.get("dry_run", False)):
                 continue
             if config_id is not None:
-                run_config_id = run_data.get("config_id")
-                if run_config_id is not None and run_config_id != config_id:
+                if run_data.get("config_id") != config_id:
                     continue
             runs.append(run_data)
             if len(runs) >= limit:
