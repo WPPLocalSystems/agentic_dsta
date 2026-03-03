@@ -13,8 +13,8 @@ This document tracks all modifications made to the `agentic_dsta` codebase for i
 | `tools/google_ads/google_ads_client.py` | Bug fix | Fetch `login_customer_id` from Firestore for MCC support |
 | `tools/google_ads/google_ads_updater.py` | Feature | Add action logging for real operations |
 | `core/action_logger.py` | New file | Unified action logging for both dry-run and real runs |
-| `core/run_logger.py` | New file | Run logging to Firestore |
-| `main.py` | Feature | Add `dry_run`, `triggered_by` parameters and run history endpoints |
+| `core/run_logger.py` | New file | Run logging to Firestore; `config_id` for per-config run history |
+| `main.py` | Feature | Add `dry_run`, `triggered_by`, `config_id` and run history endpoints |
 
 ---
 
@@ -164,23 +164,22 @@ actions = get_actions()
 
 ### 7. `agentic_dsta/core/run_logger.py` (NEW FILE)
 
-**Purpose:** Provides run logging functionality that stores run history in Firestore.
+**Purpose:** Provides run logging functionality that stores run history in Firestore. Run history can be scoped per agent config so multiple configs for the same customer do not share runs.
 
 **Key Components:**
-- `log_run_start()`: Creates a new run record
+- `log_run_start()`: Creates a new run record; optional `config_id` (app config UUID) scopes the run to that config
 - `log_run_action()`: Appends an action to a run
 - `log_run_complete()`: Marks a run as complete with summary
-- `get_run_history()`: Gets run history for a customer
+- `get_run_history()`: Gets run history for a customer; optional `config_id` filters to runs for that config (or runs with no config_id for legacy/scheduler)
 - `get_run_by_id()`: Gets a specific run's details
 
-**Firestore Collection:** `AgenticRunLogs`
+**Firestore Collection:** `AgenticRunLogs`. Documents may include optional `config_id` (string, app config UUID).
 
-**Required Firestore Index:** This feature requires a composite index. See the 
-"Required Firestore Indexes" section below for setup instructions.
+**Required Firestore Index:** Same as before (customer_id, started_at). When filtering by `config_id`, the code over-fetches then filters in memory so no additional index is required.
 
 **To recreate after upgrade:**
 1. Create the file `core/run_logger.py`
-2. Implement the logging functions as documented
+2. Implement the logging functions as documented, including optional `config_id` in `log_run_start` and `get_run_history`
 
 ---
 
@@ -209,10 +208,11 @@ updater_toolset = DryRunGoogleAdsUpdaterToolset() if dry_run else GoogleAdsUpdat
 
 # run_decision_agent signature changed:
 async def run_decision_agent(
-    customer_id: str, 
+    customer_id: str,
     usecase: Optional[str] = "GoogleAds",
     dry_run: bool = False,
-    triggered_by: str = "scheduler"
+    triggered_by: str = "scheduler",
+    config_id: Optional[str] = None,
 ) -> dict:
 
 # At start of run:
@@ -228,17 +228,17 @@ actions = get_actions()  # Gets all logged actions (both simulated and real)
 
 **Changes:**
 1. Import run logger functions
-2. Add `dry_run` and `triggered_by` parameters to `/scheduler/init_and_run` endpoint
-3. Add new endpoints for run history
+2. Add `dry_run`, `triggered_by`, and `config_id` to `/scheduler/init_and_run` payload (config_id is optional; when present, run is associated with that app config for run history)
+3. Add run history endpoints; `GET /runs/{customer_id}` accepts optional query param `config_id` to scope runs to that config
 
 **New Endpoints:**
-- `GET /runs/{customer_id}`: Get run history for a customer
+- `GET /runs/{customer_id}`: Get run history for a customer; optional `config_id` filters to that config
 - `GET /runs/{customer_id}/{run_id}`: Get details of a specific run
 
 **To recreate after upgrade:**
 1. Search for `SEARCH_ACTIVATE_MODIFICATION` comments
-2. Re-apply the parameter additions to `/scheduler/init_and_run`
-3. Re-add the run history endpoints
+2. Re-apply the parameter additions to `/scheduler/init_and_run` (including `config_id`)
+3. Re-add the run history endpoints with `config_id` query param support
 
 ---
 

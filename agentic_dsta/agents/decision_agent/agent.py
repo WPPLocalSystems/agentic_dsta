@@ -88,10 +88,11 @@ def create_agent(instruction: str, model: str = DEFAULT_MODEL, dry_run: bool = F
 
 
 async def run_decision_agent(
-    customer_id: str, 
+    customer_id: str,
     usecase: Optional[str] = "GoogleAds",
     dry_run: bool = False,
-    triggered_by: str = "scheduler"
+    triggered_by: str = "scheduler",
+    config_id: Optional[str] = None,
 ) -> dict:
     """
     Main entry point for the Decision Agent.
@@ -107,17 +108,20 @@ async def run_decision_agent(
                  SEARCH_ACTIVATE_MODIFICATION: Added dry_run parameter.
         triggered_by: What triggered the run (scheduler, manual, api).
                       SEARCH_ACTIVATE_MODIFICATION: Added triggered_by parameter.
+        config_id: Optional app config UUID for run history scoping.
+                   SEARCH_ACTIVATE_MODIFICATION: Added config_id parameter.
 
     Returns:
         A dictionary with run results including actions taken.
         SEARCH_ACTIVATE_MODIFICATION: Added return value.
     """
-    # SEARCH_ACTIVATE_MODIFICATION: Initialize run logging
+    # SEARCH_ACTIVATE_MODIFICATION: Initialize run logging with optional config_id
     run_id = log_run_start(
         customer_id=customer_id,
         usecase=usecase or "GoogleAds",
         dry_run=dry_run,
-        triggered_by=triggered_by
+        triggered_by=triggered_by,
+        config_id=config_id,
     )
     
     # SEARCH_ACTIVATE_MODIFICATION: Clear previous actions at start of run

@@ -79,6 +79,7 @@ async def scheduler_init_and_run(request: Request):
     Optional payload fields:
         - dry_run (bool): If true, simulate changes without applying them
         - triggered_by (str): What triggered the run (scheduler, manual, api)
+        - config_id (str): Optional app config UUID to scope run history to this config
     """
     payload = await request.json()
 
@@ -94,9 +95,10 @@ async def scheduler_init_and_run(request: Request):
     customer_id = payload.get("customer_id") or payload.get("user_id")
     # Fetch the usecase from payload i.e. either google ads or sa360
     usecase = payload.get("usecase")
-    # SEARCH_ACTIVATE_MODIFICATION: Parse dry_run and triggered_by
+    # SEARCH_ACTIVATE_MODIFICATION: Parse dry_run, triggered_by, and config_id
     dry_run = payload.get("dry_run", False)
     triggered_by = payload.get("triggered_by", "scheduler")
+    config_id = payload.get("config_id")
 
     if not customer_id:
         raise HTTPException(
@@ -111,8 +113,10 @@ async def scheduler_init_and_run(request: Request):
 
     try:
         # Run asynchronous controller
-        # SEARCH_ACTIVATE_MODIFICATION: Pass dry_run and triggered_by
-        result = await run_decision_agent(customer_id, usecase, dry_run=dry_run, triggered_by=triggered_by)
+        # SEARCH_ACTIVATE_MODIFICATION: Pass dry_run, triggered_by, and config_id
+        result = await run_decision_agent(
+            customer_id, usecase, dry_run=dry_run, triggered_by=triggered_by, config_id=config_id
+        )
         return {
             "status": "success", 
             "message": f"Decision agent run completed for {customer_id}",
@@ -127,22 +131,23 @@ async def scheduler_init_and_run(request: Request):
 # SEARCH_ACTIVATE_MODIFICATION: Added run history endpoints
 
 @app.get("/runs/{customer_id}")
-async def get_runs_for_customer(customer_id: str, limit: int = 20, include_dry_runs: bool = True):
+async def get_runs_for_customer(
+    customer_id: str,
+    limit: int = 20,
+    include_dry_runs: bool = True,
+    config_id: str | None = None,
+):
     """
-    Get run history for a customer.
-    
+    Get run history for a customer, optionally scoped to a single agent config.
+
     SEARCH_ACTIVATE_MODIFICATION: This endpoint was added for run logging support.
-    
-    Args:
-        customer_id: The Google Ads customer ID.
-        limit: Maximum number of runs to return (default 20).
-        include_dry_runs: Whether to include dry-run results (default True).
-    
-    Returns:
-        A list of run records.
+    config_id parameter added to scope run history per agent config.
     """
-    logger.info("Fetching run history for customer_id=%s", customer_id)
-    runs = get_run_history(customer_id, limit=limit, include_dry_runs=include_dry_runs)
+    config_id_filter = config_id if (config_id and config_id.strip()) else None
+    logger.info("Fetching run history for customer_id=%s config_id=%s", customer_id, config_id_filter)
+    runs = get_run_history(
+        customer_id, limit=limit, include_dry_runs=include_dry_runs, config_id=config_id_filter
+    )
     return {"customer_id": customer_id, "runs": runs}
 
 

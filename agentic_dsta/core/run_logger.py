@@ -47,17 +47,20 @@ def log_run_start(
     customer_id: str,
     usecase: str,
     dry_run: bool = False,
-    triggered_by: str = "scheduler"
+    triggered_by: str = "scheduler",
+    config_id: Optional[str] = None,
 ) -> str:
     """
     Log the start of an agent run.
-    
+
+    SEARCH_ACTIVATE_MODIFICATION: Added config_id to scope run history per agent config.
+
     Args:
         customer_id: The Google Ads customer ID.
         usecase: The use case (google_ads or sa360).
         dry_run: Whether this is a dry-run.
         triggered_by: What triggered the run (scheduler, manual, api).
-    
+        config_id: Optional app config UUID; when set, run history can be filtered by this config.
     Returns:
         The run ID for this run.
     """
@@ -75,6 +78,8 @@ def log_run_start(
             "error": None,
             "summary": None
         }
+        if config_id is not None:
+            run_doc["config_id"] = config_id
         
         # Create document with auto-generated ID
         doc_ref = db.collection(RUN_LOGS_COLLECTION).document()
@@ -170,37 +175,48 @@ def log_run_complete(
 def get_run_history(
     customer_id: str,
     limit: int = 20,
-    include_dry_runs: bool = True
+    include_dry_runs: bool = True,
+    config_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Get run history for a customer.
-    
+    Get run history for a customer, optionally scoped to a single agent config.
+
+    SEARCH_ACTIVATE_MODIFICATION: Added config_id to scope run history per agent config.
+    When config_id is set, returns only runs for that config (or runs with no config_id
+    for backward compatibility with scheduler/legacy runs).
+
     Args:
         customer_id: The Google Ads customer ID.
         limit: Maximum number of runs to return.
         include_dry_runs: Whether to include dry-run results.
-    
+        config_id: If set, only return runs for this config (or runs with no config_id).
     Returns:
         List of run documents, newest first.
-    
-    Note: This query requires a Firestore composite index on AgenticRunLogs
-    collection with fields: customer_id (ascending), started_at (descending).
-    See SEARCH_ACTIVATE_MODIFICATIONS.md for index creation instructions.
+    Note:
+        Uses existing Firestore index: customer_id (asc), started_at (desc).
+        When config_id is set, over-fetches then filters in memory so no new index is required.
     """
     try:
         db = _get_db()
+        fetch_limit = limit * 5 if config_id else limit  # over-fetch when filtering by config_id
         query = db.collection(RUN_LOGS_COLLECTION).where(
             filter=firestore.FieldFilter("customer_id", "==", customer_id)
-        ).order_by("started_at", direction=firestore.Query.DESCENDING).limit(limit)
-        
+        ).order_by("started_at", direction=firestore.Query.DESCENDING).limit(fetch_limit)
+
         docs = query.stream()
         runs = []
         for doc in docs:
             run_data = doc.to_dict()
             run_data["id"] = doc.id
-            if include_dry_runs or not run_data.get("dry_run", False):
-                runs.append(run_data)
-        
+            if not (include_dry_runs or not run_data.get("dry_run", False)):
+                continue
+            if config_id is not None:
+                run_config_id = run_data.get("config_id")
+                if run_config_id is not None and run_config_id != config_id:
+                    continue
+            runs.append(run_data)
+            if len(runs) >= limit:
+                break
         return runs
     except Exception as e:
         logger.error("Failed to get run history: %s", e)
